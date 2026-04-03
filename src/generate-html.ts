@@ -70,7 +70,73 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
   const totalTests = summary.tests;
   const passRate = totalTests > 0 ? Math.round((summary.passed / totalTests) * 100) : 0;
 
-  // Sidebar tree — group by project (suite[0])
+  // Sidebar tree — group by full suite hierarchy
+  interface TreeNode {
+    name: string;
+    children: Map<string, TreeNode>;
+    tests: { test: CtrfTest; idx: number }[];
+  }
+
+  function newNode(name: string): TreeNode {
+    return { name, children: new Map(), tests: [] };
+  }
+
+  const root = newNode('root');
+  tests.forEach((t, i) => {
+    const suitePath = t.suite ?? ['default'];
+    let node = root;
+    for (const seg of suitePath) {
+      if (!node.children.has(seg)) node.children.set(seg, newNode(seg));
+      node = node.children.get(seg)!;
+    }
+    node.tests.push({ test: t, idx: i });
+  });
+
+  function countAll(node: TreeNode): { test: CtrfTest; idx: number }[] {
+    const result = [...node.tests];
+    for (const child of node.children.values()) result.push(...countAll(child));
+    return result;
+  }
+
+  function renderNode(node: TreeNode, depth: number): string {
+    const allTests = countAll(node);
+    if (allTests.length === 0) return '';
+
+    const passed = allTests.filter((i) => i.test.status === 'passed').length;
+    const total = allTests.length;
+    const hasFail = allTests.some((i) => i.test.status === 'failed');
+    const groupColor = hasFail ? 'var(--red)' : passed === total ? 'var(--accent)' : 'var(--t2)';
+
+    const childrenHtml = Array.from(node.children.values())
+      .map((child) => renderNode(child, depth + 1))
+      .join('\n');
+
+    const rowsHtml = node.tests
+      .map((i) => {
+        const ind = STATUS_INDICATOR[i.test.status] || STATUS_INDICATOR.other;
+        return `<a class="sb-row" href="#lane-${i.idx}" data-i="${i.idx}" data-status="${i.test.status}" data-proj="${esc(node.name)}" style="padding-left:${(depth + 1) * 16 + 12}px">
+  <span class="sb-dot" style="color:${ind.color}">${ind.symbol}</span>
+  <span class="sb-text">${esc(i.test.name)}</span>
+  <span class="sb-time">${dur(i.test.duration)}</span>
+</a>`;
+      })
+      .join('\n');
+
+    return `<div class="sb-group" data-proj="${esc(node.name)}" data-depth="${depth}">
+  <div class="sb-group-head" style="padding-left:${depth * 16 + 12}px">
+    <span class="sb-arrow">▼</span>
+    <span class="sb-group-name">${esc(node.name)}</span>
+    <span class="sb-group-count" style="color:${groupColor}">${passed}/${total}</span>
+  </div>
+  <div class="sb-group-body">${childrenHtml}${rowsHtml}</div>
+</div>`;
+  }
+
+  const sbTree = Array.from(root.children.values())
+    .map((child) => renderNode(child, 0))
+    .join('\n');
+
+  // Collect all tests in tree order for lanes
   const projectGroups = new Map<string, { test: CtrfTest; idx: number }[]>();
   tests.forEach((t, i) => {
     const proj = t.suite?.[0] ?? 'default';
@@ -78,37 +144,6 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
     group.push({ test: t, idx: i });
     projectGroups.set(proj, group);
   });
-
-  const sbTree = Array.from(projectGroups.entries())
-    .map(([proj, items]) => {
-      const passed = items.filter((i) => i.test.status === 'passed').length;
-      const total = items.length;
-      const allPassed = passed === total;
-      const hasFail = items.some((i) => i.test.status === 'failed');
-      const groupColor = hasFail ? 'var(--red)' : allPassed ? 'var(--accent)' : 'var(--t2)';
-
-      const children = items
-        .map((i) => {
-          const ind = STATUS_INDICATOR[i.test.status] || STATUS_INDICATOR.other;
-          const displayStatus = i.test.rawStatus || i.test.status;
-          return `<a class="sb-row" href="#lane-${i.idx}" data-i="${i.idx}" data-status="${i.test.status}" data-proj="${esc(proj)}">
-  <span class="sb-dot" style="color:${ind.color}">${ind.symbol}</span>
-  <span class="sb-text">${esc(i.test.name)}</span>
-  <span class="sb-time">${dur(i.test.duration)}</span>
-</a>`;
-        })
-        .join('\n');
-
-      return `<div class="sb-group" data-proj="${esc(proj)}">
-  <div class="sb-group-head">
-    <span class="sb-arrow">▼</span>
-    <span class="sb-group-name">${esc(proj)}</span>
-    <span class="sb-group-count" style="color:${groupColor}">${passed}/${total}</span>
-  </div>
-  <div class="sb-group-body">${children}</div>
-</div>`;
-    })
-    .join('\n');
 
   // Reorder tests to match tree order (project groups)
   const orderedTests: { test: CtrfTest; idx: number }[] = [];
@@ -301,6 +336,12 @@ body{
 .sb-group.collapsed .sb-arrow{transform:rotate(-90deg)}
 .sb-group.collapsed .sb-group-body{display:none}
 .sb-group-name{font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--t1);font-size:11px}
+.sb-group[data-depth="1"] > .sb-group-head{background:transparent;border-color:transparent}
+.sb-group[data-depth="1"] > .sb-group-head:hover{background:var(--bg2)}
+.sb-group[data-depth="1"] .sb-group-name{text-transform:none;font-weight:500;color:var(--t2);font-size:11px}
+.sb-group[data-depth="2"] > .sb-group-head{background:transparent;border-color:transparent}
+.sb-group[data-depth="2"] > .sb-group-head:hover{background:var(--bg2)}
+.sb-group[data-depth="2"] .sb-group-name{text-transform:none;font-weight:400;color:var(--t3);font-size:10px}
 .sb-group-count{margin-left:auto;font-size:10px;font-weight:600}
 
 /* Tree item */
@@ -308,7 +349,7 @@ body{
   display:flex;
   align-items:center;
   gap:8px;
-  padding:5px 12px 5px 28px;
+  padding:5px 12px;
   border-radius:4px;
   text-decoration:none;
   color:inherit;
