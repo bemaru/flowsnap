@@ -20,6 +20,11 @@ const STATUS_INDICATOR: Record<string, { symbol: string; color: string }> = {
   other: { symbol: '●', color: '#fb923c' },
 };
 
+/** Safely serialize data for embedding in a <script> block */
+function jsonForScript(data: unknown): string {
+  return JSON.stringify(data).replace(/<\/(script)/gi, '<\\/$1');
+}
+
 // --- Utilities ---
 
 function esc(str: string): string {
@@ -152,7 +157,7 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
     .join('\n');
 
   // Gallery data for modal
-  const galleryJson = JSON.stringify(
+  const galleryJson = jsonForScript(
     tests
       .filter((t) => (t.extra?.flow?.screenshots ?? []).length > 0)
       .map((t) => ({
@@ -671,7 +676,7 @@ document.querySelectorAll('.sb-row').forEach(function(a){
 });
 
 // Filter
-var statuses=${JSON.stringify(orderedTests.map((o) => o.test.status))};
+var statuses=${jsonForScript(orderedTests.map((o) => o.test.status))};
 document.querySelectorAll('.sb-filter button').forEach(function(b){
   b.onclick=function(){
     document.querySelectorAll('.sb-filter button').forEach(function(x){x.classList.remove('on')});
@@ -753,11 +758,17 @@ export async function generateFlowHtml(ctrfReportPath: string, outputHtmlPath: s
   const baseDir = path.dirname(ctrfReportPath);
   const base64Map = new Map<string, string>();
 
-  // 각 테스트의 flow 스크린샷을 base64로 로딩
+  // Load each test's flow screenshots as base64
+  const resolvedBase = path.resolve(baseDir) + path.sep;
   for (const t of report.results.tests) {
     const shots = t.extra?.flow?.screenshots ?? [];
     for (const s of shots) {
-      base64Map.set(s.id, toBase64(path.resolve(baseDir, s.screenshotPath)));
+      const resolved = path.resolve(baseDir, s.screenshotPath);
+      // Prevent path traversal — screenshot must stay within base directory
+      if (!resolved.startsWith(resolvedBase)) {
+        continue;
+      }
+      base64Map.set(s.id, toBase64(resolved));
     }
   }
 

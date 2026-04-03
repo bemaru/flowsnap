@@ -222,6 +222,14 @@ Or from the command line by running the generate-html module directly.
 
 ---
 
+## Security Considerations
+
+- **Sensitive data in screenshots**: Screenshots may capture logged-in user info, API responses, or internal dashboards. Do not publish reports to public repositories or storage without review.
+- **Error details**: Failed test reports may include stack traces containing connection strings, API keys, or tokens. Always review reports before sharing externally.
+- **Exclude output from version control**: Add the output directory to `.gitignore` (e.g., `flow-report/`) to prevent accidental commits of sensitive screenshots and reports.
+
+---
+
 ## License
 
 [MIT](./LICENSE)
