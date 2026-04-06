@@ -1,43 +1,25 @@
-/**
- * flowsnap - HTML Report Generator
- *
- * ctrf-report.json(CTRF 포맷)과 스크린샷을 읽어서 self-contained HTML 리포트를 생성.
- * 디자인: 모노스페이스, 흑백 기조, 넉넉한 여백, 장식 최소화.
- */
-
-import * as fs from 'fs';
-import * as path from 'path';
-
-import type { CtrfReport, CtrfTest, FlowScreenshot } from './types';
-
-// --- Constants ---
-
-const STATUS_INDICATOR: Record<string, { symbol: string; color: string }> = {
-  passed: { symbol: '●', color: '#4ade80' },
-  failed: { symbol: '●', color: '#f87171' },
-  skipped: { symbol: '○', color: '#525866' },
-  pending: { symbol: '●', color: '#fbbf24' },
-  other: { symbol: '●', color: '#fb923c' },
+// src/generate-html.ts
+import * as fs from "fs";
+import * as path from "path";
+var STATUS_INDICATOR = {
+  passed: { symbol: "\u25CF", color: "#4ade80" },
+  failed: { symbol: "\u25CF", color: "#f87171" },
+  skipped: { symbol: "\u25CB", color: "#525866" },
+  pending: { symbol: "\u25CF", color: "#fbbf24" },
+  other: { symbol: "\u25CF", color: "#fb923c" }
 };
-
-/** Safely serialize data for embedding in a <script> block */
-function jsonForScript(data: unknown): string {
-  return JSON.stringify(data).replace(/<\/(script)/gi, '<\\/$1');
+function jsonForScript(data) {
+  return JSON.stringify(data).replace(/<\/(script)/gi, "<\\/$1");
 }
-
-// --- Utilities ---
-
-function esc(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+function esc(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-
-function dur(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60000)}m ${((ms % 60000) / 1000).toFixed(0)}s`;
+function dur(ms) {
+  if (ms < 1e3) return `${ms}ms`;
+  if (ms < 6e4) return `${(ms / 1e3).toFixed(1)}s`;
+  return `${Math.floor(ms / 6e4)}m ${(ms % 6e4 / 1e3).toFixed(0)}s`;
 }
-
-function shortUrl(url: string): string {
+function shortUrl(url) {
   try {
     const p = new URL(url);
     return p.pathname + p.search;
@@ -45,176 +27,119 @@ function shortUrl(url: string): string {
     return url;
   }
 }
-
-function toBase64(filePath: string): string {
+function toBase64(filePath) {
   try {
-    return `data:image/png;base64,${fs.readFileSync(filePath).toString('base64')}`;
+    return `data:image/png;base64,${fs.readFileSync(filePath).toString("base64")}`;
   } catch {
-    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==';
+    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPj/HwADBwIAMCbHYQAAAABJRU5ErkJggg==";
   }
 }
-
-// --- HTML builder ---
-
-function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
+function buildHtml(report, base64Map) {
   const { summary, tests } = report.results;
-
-  // 전체 스크린샷 맵 구축
-  const ssMap = new Map<string, FlowScreenshot>();
+  const ssMap = /* @__PURE__ */ new Map();
   for (const t of tests) {
     const shots = t.extra?.flow?.screenshots ?? [];
     for (const s of shots) ssMap.set(s.id, s);
   }
-
   const totalShots = ssMap.size;
   const totalTests = summary.tests;
-  const passRate = totalTests > 0 ? Math.round((summary.passed / totalTests) * 100) : 0;
-
-  // Sidebar tree — group by full suite hierarchy
-  interface TreeNode {
-    name: string;
-    children: Map<string, TreeNode>;
-    tests: { test: CtrfTest; idx: number }[];
+  const passRate = totalTests > 0 ? Math.round(summary.passed / totalTests * 100) : 0;
+  function newNode(name) {
+    return { name, children: /* @__PURE__ */ new Map(), tests: [] };
   }
-
-  function newNode(name: string): TreeNode {
-    return { name, children: new Map(), tests: [] };
-  }
-
-  const root = newNode('root');
+  const root = newNode("root");
   tests.forEach((t, i) => {
-    const suitePath = t.suite ?? ['default'];
+    const suitePath = t.suite ?? ["default"];
     let node = root;
     for (const seg of suitePath) {
       if (!node.children.has(seg)) node.children.set(seg, newNode(seg));
-      node = node.children.get(seg)!;
+      node = node.children.get(seg);
     }
     node.tests.push({ test: t, idx: i });
   });
-
-  function countAll(node: TreeNode): { test: CtrfTest; idx: number }[] {
+  function countAll(node) {
     const result = [...node.tests];
     for (const child of node.children.values()) result.push(...countAll(child));
     return result;
   }
-
-  function renderNode(node: TreeNode, depth: number): string {
+  function renderNode(node, depth) {
     const allTests = countAll(node);
-    if (allTests.length === 0) return '';
-
-    const passed = allTests.filter((i) => i.test.status === 'passed').length;
+    if (allTests.length === 0) return "";
+    const passed = allTests.filter((i) => i.test.status === "passed").length;
     const total = allTests.length;
-    const hasFail = allTests.some((i) => i.test.status === 'failed');
-    const groupColor = hasFail ? 'var(--red)' : passed === total ? 'var(--accent)' : 'var(--t2)';
-
-    const childrenHtml = Array.from(node.children.values())
-      .map((child) => renderNode(child, depth + 1))
-      .join('\n');
-
-    const rowsHtml = node.tests
-      .map((i) => {
-        const ind = STATUS_INDICATOR[i.test.status] || STATUS_INDICATOR.other;
-        return `<a class="sb-row" href="#lane-${i.idx}" data-i="${i.idx}" data-status="${i.test.status}" data-proj="${esc(node.name)}" style="padding-left:${(depth + 1) * 16 + 12}px">
+    const hasFail = allTests.some((i) => i.test.status === "failed");
+    const groupColor = hasFail ? "var(--red)" : passed === total ? "var(--accent)" : "var(--t2)";
+    const childrenHtml = Array.from(node.children.values()).map((child) => renderNode(child, depth + 1)).join("\n");
+    const rowsHtml = node.tests.map((i) => {
+      const ind = STATUS_INDICATOR[i.test.status] || STATUS_INDICATOR.other;
+      return `<a class="sb-row" href="#lane-${i.idx}" data-i="${i.idx}" data-status="${i.test.status}" data-proj="${esc(node.name)}" style="padding-left:${(depth + 1) * 16 + 12}px">
   <span class="sb-dot" style="color:${ind.color}">${ind.symbol}</span>
   <span class="sb-text">${esc(i.test.name)}</span>
   <span class="sb-time">${dur(i.test.duration)}</span>
 </a>`;
-      })
-      .join('\n');
-
+    }).join("\n");
     return `<div class="sb-group" data-proj="${esc(node.name)}" data-depth="${depth}">
   <div class="sb-group-head" style="padding-left:${depth * 16 + 12}px">
-    <span class="sb-arrow">▼</span>
+    <span class="sb-arrow">\u25BC</span>
     <span class="sb-group-name">${esc(node.name)}</span>
     <span class="sb-group-count" style="color:${groupColor}">${passed}/${total}</span>
   </div>
   <div class="sb-group-body">${childrenHtml}${rowsHtml}</div>
 </div>`;
   }
-
-  const sbTree = Array.from(root.children.values())
-    .map((child) => renderNode(child, 0))
-    .join('\n');
-
-  // Collect all tests in tree order for lanes
-  const projectGroups = new Map<string, { test: CtrfTest; idx: number }[]>();
+  const sbTree = Array.from(root.children.values()).map((child) => renderNode(child, 0)).join("\n");
+  const projectGroups = /* @__PURE__ */ new Map();
   tests.forEach((t, i) => {
-    const proj = t.suite?.[0] ?? 'default';
+    const proj = t.suite?.[0] ?? "default";
     const group = projectGroups.get(proj) || [];
     group.push({ test: t, idx: i });
     projectGroups.set(proj, group);
   });
-
-  // Reorder tests to match tree order (project groups)
-  const orderedTests: { test: CtrfTest; idx: number }[] = [];
+  const orderedTests = [];
   for (const [, items] of Array.from(projectGroups)) {
     for (const item of items) orderedTests.push(item);
   }
-
-  // Flow lanes — in tree order
-  const lanesHtml = orderedTests
-    .map(({ test: t, idx: i }) => {
-      const ind = STATUS_INDICATOR[t.status] || STATUS_INDICATOR.other;
-      const shots = t.extra?.flow?.screenshots ?? [];
-      const projectName = t.suite?.[0] ?? 'default';
-
-      const cardsHtml =
-        shots.length === 0
-          ? '<div class="lane-empty">no screenshots</div>'
-          : shots
-              .map((ss, j) => {
-                const src = base64Map.get(ss.id) || '';
-                const arrow = j < shots.length - 1 ? '<div class="arrow">→</div>' : '';
-                return `<div class="card" data-test="${esc(t.name)}" data-label="${esc(ss.label)}" data-url="${esc(ss.url)}" data-src="${src}">
+  const lanesHtml = orderedTests.map(({ test: t, idx: i }) => {
+    const ind = STATUS_INDICATOR[t.status] || STATUS_INDICATOR.other;
+    const shots = t.extra?.flow?.screenshots ?? [];
+    const projectName = t.suite?.[0] ?? "default";
+    const cardsHtml = shots.length === 0 ? '<div class="lane-empty">no screenshots</div>' : shots.map((ss, j) => {
+      const src = base64Map.get(ss.id) || "";
+      const arrow = j < shots.length - 1 ? '<div class="arrow">\u2192</div>' : "";
+      return `<div class="card" data-test="${esc(t.name)}" data-label="${esc(ss.label)}" data-url="${esc(ss.url)}" data-src="${src}">
   <div class="card-img"><img src="${src}" alt="" loading="lazy"/><span class="card-num">#${j + 1}</span></div>
   <div class="card-meta">
     <span class="card-label">${esc(ss.label)}</span>
     <span class="card-url">${esc(shortUrl(ss.url))}</span>
   </div>
 </div>${arrow}`;
-              })
-              .join('\n');
-
-      const laneClass = t.status === 'failed' ? ' fail' : t.status === 'skipped' ? ' skip' : '';
-      const displayStatus = t.rawStatus && t.rawStatus !== t.status ? ` (${t.rawStatus})` : '';
-      return `<section class="lane${laneClass}" id="lane-${i}">
+    }).join("\n");
+    const laneClass = t.status === "failed" ? " fail" : t.status === "skipped" ? " skip" : "";
+    const displayStatus = t.rawStatus && t.rawStatus !== t.status ? ` (${t.rawStatus})` : "";
+    return `<section class="lane${laneClass}" id="lane-${i}">
   <div class="lane-head">
-    <span class="lane-fold">▼</span>
+    <span class="lane-fold">\u25BC</span>
     <span class="lane-dot" style="color:${ind.color}">${ind.symbol}</span>
-    <span class="lane-title">${esc(t.name)}${displayStatus ? ` <span style="color:var(--t3);font-size:10px">${esc(displayStatus)}</span>` : ''}</span>
+    <span class="lane-title">${esc(t.name)}${displayStatus ? ` <span style="color:var(--t3);font-size:10px">${esc(displayStatus)}</span>` : ""}</span>
     <span class="lane-tag">${esc(projectName)}</span>
-    <span class="lane-time">${dur(t.duration)}${shots.length > 0 ? ` · ${shots.length} shots` : ''}</span>
+    <span class="lane-time">${dur(t.duration)}${shots.length > 0 ? ` \xB7 ${shots.length} shots` : ""}</span>
   </div>
-  ${t.message ? `<div class="lane-error"><span class="err-icon">!</span><pre class="err-msg">${esc(t.message)}</pre></div>` : ''}
+  ${t.message ? `<div class="lane-error"><span class="err-icon">!</span><pre class="err-msg">${esc(t.message)}</pre></div>` : ""}
   <div class="lane-track">${cardsHtml}</div>
 </section>`;
-    })
-    .join('\n');
-
-  // Gallery data for modal
+  }).join("\n");
   const galleryJson = jsonForScript(
-    tests
-      .filter((t) => (t.extra?.flow?.screenshots ?? []).length > 0)
-      .map((t) => ({
-        title: t.name,
-        shots: (t.extra?.flow?.screenshots ?? [])
-          .map((ss) => ({ src: base64Map.get(ss.id) || '', label: ss.label, url: ss.url }))
-          .filter((s) => s.src),
-      })),
+    tests.filter((t) => (t.extra?.flow?.screenshots ?? []).length > 0).map((t) => ({
+      title: t.name,
+      shots: (t.extra?.flow?.screenshots ?? []).map((ss) => ({ src: base64Map.get(ss.id) || "", label: ss.label, url: ss.url })).filter((s) => s.src)
+    }))
   );
-
-  // timestamp 표시
-  const reportTime = report.timestamp
-    ? esc(new Date(report.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }))
-    : '';
+  const reportTime = report.timestamp ? esc(new Date(report.timestamp).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })) : "";
   const durationMs = summary.duration ?? 0;
-
-  // git 메타데이터
   const env = report.results.environment;
-  const gitBranch = env?.branchName ? esc(env.branchName) : '';
-  const gitCommit = env?.commit ? esc(env.commit) : '';
-  const gitTag = env?.extra?.tag ? esc(String(env.extra.tag)) : '';
-
+  const gitBranch = env?.branchName ? esc(env.branchName) : "";
+  const gitCommit = env?.commit ? esc(env.commit) : "";
+  const gitTag = env?.extra?.tag ? esc(String(env.extra.tag)) : "";
   return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -293,7 +218,7 @@ body{
 .sb-bar{height:4px;display:flex;border-radius:2px;overflow:hidden;margin-top:8px;gap:1px}
 .sb-bar span{height:100%}
 
-/* Stats removed — info is in main header */
+/* Stats removed \u2014 info is in main header */
 
 /* Filter */
 .sb-filter{
@@ -402,7 +327,7 @@ body{
 .main::-webkit-scrollbar{width:4px}
 .main::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
-/* Header removed — stats in sidebar */
+/* Header removed \u2014 stats in sidebar */
 
 /* Lanes */
 .lanes{padding:8px 0 60px}
@@ -625,21 +550,21 @@ body{
 </head>
 <body>
 
-<button class="sb-toggle" id="sbt">☰</button>
+<button class="sb-toggle" id="sbt">\u2630</button>
 
 <aside class="sb" id="sb">
   <div class="sb-head">
     <h1>E2E Flow Report</h1>
     <div class="sb-sub">${reportTime}</div>
-    ${gitBranch || gitCommit ? `<div class="sb-git">${gitBranch ? `<span class="git-branch">${gitBranch}</span>` : ''}${gitCommit ? `<span class="git-commit">${gitCommit}</span>` : ''}${gitTag ? `<span class="git-tag">${gitTag}</span>` : ''}</div>` : ''}
+    ${gitBranch || gitCommit ? `<div class="sb-git">${gitBranch ? `<span class="git-branch">${gitBranch}</span>` : ""}${gitCommit ? `<span class="git-commit">${gitCommit}</span>` : ""}${gitTag ? `<span class="git-tag">${gitTag}</span>` : ""}</div>` : ""}
     <div class="sb-summary">
       <span class="sb-big">${summary.passed} / ${totalTests}</span>
-      <span class="sb-detail">${dur(durationMs)} · <span class="g">${summary.passed} passed</span>${summary.failed > 0 ? ` · <span class="r">${summary.failed} failed</span>` : ''}${summary.skipped > 0 ? ` · ${summary.skipped} skipped` : ''}${summary.pending > 0 ? ` · ${summary.pending} pending` : ''} · ${totalShots} shots</span>
+      <span class="sb-detail">${dur(durationMs)} \xB7 <span class="g">${summary.passed} passed</span>${summary.failed > 0 ? ` \xB7 <span class="r">${summary.failed} failed</span>` : ""}${summary.skipped > 0 ? ` \xB7 ${summary.skipped} skipped` : ""}${summary.pending > 0 ? ` \xB7 ${summary.pending} pending` : ""} \xB7 ${totalShots} shots</span>
       <div class="sb-bar">
-        <span style="width:${(summary.passed / totalTests) * 100}%;background:var(--accent)"></span>
-        ${summary.failed > 0 ? `<span style="width:${(summary.failed / totalTests) * 100}%;background:var(--red)"></span>` : ''}
-        ${summary.skipped > 0 ? `<span style="width:${(summary.skipped / totalTests) * 100}%;background:var(--t3)"></span>` : ''}
-        ${summary.pending > 0 ? `<span style="width:${(summary.pending / totalTests) * 100}%;background:var(--yellow, #fbbf24)"></span>` : ''}
+        <span style="width:${summary.passed / totalTests * 100}%;background:var(--accent)"></span>
+        ${summary.failed > 0 ? `<span style="width:${summary.failed / totalTests * 100}%;background:var(--red)"></span>` : ""}
+        ${summary.skipped > 0 ? `<span style="width:${summary.skipped / totalTests * 100}%;background:var(--t3)"></span>` : ""}
+        ${summary.pending > 0 ? `<span style="width:${summary.pending / totalTests * 100}%;background:var(--yellow, #fbbf24)"></span>` : ""}
       </div>
     </div>
   </div>
@@ -647,12 +572,12 @@ body{
     <button class="on" data-f="all">all</button>
     <button data-f="passed">pass</button>
     <button data-f="failed">fail</button>
-    ${summary.skipped > 0 ? '<button data-f="skipped">skip</button>' : ''}
-    ${summary.pending > 0 ? '<button data-f="pending">pending</button>' : ''}
-    ${tests.some((t) => t.status === 'other') ? '<button data-f="other">other</button>' : ''}
+    ${summary.skipped > 0 ? '<button data-f="skipped">skip</button>' : ""}
+    ${summary.pending > 0 ? '<button data-f="pending">pending</button>' : ""}
+    ${tests.some((t) => t.status === "other") ? '<button data-f="other">other</button>' : ""}
     <span class="sb-tree-toggle">
-      <button id="expandAll" title="전체 펼치기">+</button>
-      <button id="collapseAll" title="전체 접기">−</button>
+      <button id="expandAll" title="\uC804\uCCB4 \uD3BC\uCE58\uAE30">+</button>
+      <button id="collapseAll" title="\uC804\uCCB4 \uC811\uAE30">\u2212</button>
     </span>
   </div>
   <div class="sb-search"><input id="search" type="text" placeholder="search tests..." autocomplete="off"/></div>
@@ -664,7 +589,7 @@ body{
 </main>
 
 <div class="modal" id="mod">
-  <button class="mx" id="modX">×</button>
+  <button class="mx" id="modX">\xD7</button>
   <img class="mi" id="modI" src="" alt=""/>
   <div class="mc">
     <div class="mc-test" id="modT"></div>
@@ -672,7 +597,7 @@ body{
     <div class="mc-url" id="modU"></div>
     <div class="mc-count" id="modC"></div>
   </div>
-  <div class="mn"><button id="modP">←</button><button id="modN">→</button></div>
+  <div class="mn"><button id="modP">\u2190</button><button id="modN">\u2192</button></div>
   <div class="mt" id="modTh"></div>
 </div>
 
@@ -713,7 +638,7 @@ document.addEventListener('keydown',function(e){
   if(e.key==='ArrowRight'){ci=(ci+1)%cs.length;render()}
 });
 
-// Card click → modal
+// Card click \u2192 modal
 document.querySelectorAll('.card').forEach(function(c){
   c.onclick=function(){
     var lane=c.closest('.lane');
@@ -755,7 +680,7 @@ document.querySelectorAll('.lane-head').forEach(function(h){
   h.onclick=function(){h.parentElement.classList.toggle('collapsed')};
 });
 
-// Scroll spy — highlight active sidebar item
+// Scroll spy \u2014 highlight active sidebar item
 var lanes=document.querySelectorAll('.lane');
 var sbRows=document.querySelectorAll('.sb-row');
 var mainEl=document.querySelector('.main');
@@ -789,7 +714,7 @@ document.getElementById('search').addEventListener('input',function(e){
     var visible=g.querySelectorAll('.sb-row[style*="flex"]').length>0||!q;
     g.style.display=visible?'block':'none';
   });
-  // lane도 필터
+  // lane\uB3C4 \uD544\uD130
   document.querySelectorAll('.lane').forEach(function(l,i){
     var title=l.querySelector('.lane-title').textContent.toLowerCase();
     l.style.display=(!q||title.includes(q))?'block':'none';
@@ -813,37 +738,31 @@ document.getElementById('sbt').onclick=function(){document.getElementById('sb').
 </body>
 </html>`;
 }
-
-// --- Main ---
-
-export async function generateFlowHtml(ctrfReportPath: string, outputHtmlPath: string): Promise<void> {
-  const report: CtrfReport = JSON.parse(fs.readFileSync(ctrfReportPath, 'utf-8'));
+async function generateFlowHtml(ctrfReportPath, outputHtmlPath) {
+  const report = JSON.parse(fs.readFileSync(ctrfReportPath, "utf-8"));
   const baseDir = path.dirname(ctrfReportPath);
-  const base64Map = new Map<string, string>();
-
-  // Load each test's flow screenshots as base64
+  const base64Map = /* @__PURE__ */ new Map();
   const resolvedBase = path.resolve(baseDir) + path.sep;
   for (const t of report.results.tests) {
     const shots = t.extra?.flow?.screenshots ?? [];
     for (const s of shots) {
       const resolved = path.resolve(baseDir, s.screenshotPath);
-      // Prevent path traversal — screenshot must stay within base directory
       if (!resolved.startsWith(resolvedBase)) {
         continue;
       }
       base64Map.set(s.id, toBase64(resolved));
     }
   }
-
   const html = buildHtml(report, base64Map);
   const outDir = path.dirname(outputHtmlPath);
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(outputHtmlPath, html, 'utf-8');
+  fs.writeFileSync(outputHtmlPath, html, "utf-8");
 }
-
-const isMain = typeof process !== 'undefined' && process.argv[1] && process.argv[1].includes('generate-html');
+var isMain = typeof process !== "undefined" && process.argv[1] && process.argv[1].includes("generate-html");
 if (isMain) {
   const args = process.argv.slice(2);
-  generateFlowHtml(args[0] || './flow-report/ctrf-report.json', args[1] || './flow-report/index.html')
-    .then(() => console.log('Generated'));
+  generateFlowHtml(args[0] || "./flow-report/ctrf-report.json", args[1] || "./flow-report/index.html").then(() => console.log("Generated"));
 }
+export {
+  generateFlowHtml
+};

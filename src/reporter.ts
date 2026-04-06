@@ -20,8 +20,10 @@ import type {
   TestCase,
   TestResult,
 } from '@playwright/test/reporter';
+import { execSync } from 'node:child_process';
 import type {
   CtrfAttachment,
+  CtrfEnvironment,
   CtrfReport,
   CtrfStep,
   CtrfTest,
@@ -29,8 +31,30 @@ import type {
   FlowEdge,
   FlowReporterOptions,
   FlowScreenshot,
+  GitOptions,
 } from './types';
 import { generateFlowHtml } from './generate-html';
+
+/** git 명령 실행 헬퍼 — 실패 시 undefined 반환 */
+function gitExec(cmd: string): string | undefined {
+  try {
+    return execSync(cmd, { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** git 메타데이터 자동 수집 */
+function collectGitInfo(): GitOptions {
+  return {
+    branch: gitExec('git branch --show-current'),
+    commit: gitExec('git rev-parse --short HEAD'),
+    tag: gitExec('git tag --points-at HEAD'),
+    repositoryName: gitExec('git remote get-url origin')
+      ?.replace(/.*[/:]([^/]+\/[^/]+?)(?:\.git)?$/, '$1'),
+    repositoryUrl: gitExec('git remote get-url origin'),
+  };
+}
 
 function slugify(text: string): string {
   return text
@@ -66,6 +90,8 @@ class FlowReporter implements Reporter {
   private outputDir: string;
   private screenshotsDir: string = '';
   private generateHtml: boolean;
+  private gitOption: boolean | GitOptions;
+  private gitInfo: GitOptions = {};
 
   /** testId → 마지막 attempt 결과 (덮어쓰기로 병합) */
   private testMap = new Map<string, TestEntry>();
@@ -74,6 +100,7 @@ class FlowReporter implements Reporter {
   constructor(options: FlowReporterOptions = {}) {
     this.outputDir = options.outputDir ?? './flow-report';
     this.generateHtml = options.generateHtml ?? true;
+    this.gitOption = options.git ?? true;
   }
 
   onBegin(_config: FullConfig, _suite: Suite): void {
@@ -81,6 +108,13 @@ class FlowReporter implements Reporter {
 
     this.screenshotsDir = path.join(this.outputDir, 'screenshots');
     fs.mkdirSync(this.screenshotsDir, { recursive: true });
+
+    // Git 메타데이터 수집
+    if (this.gitOption === true) {
+      this.gitInfo = collectGitInfo();
+    } else if (this.gitOption && typeof this.gitOption === 'object') {
+      this.gitInfo = this.gitOption;
+    }
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
@@ -288,6 +322,19 @@ class FlowReporter implements Reporter {
     const failed = tests.filter((t) => t.status === 'failed').length;
     const skipped = tests.filter((t) => t.status === 'skipped').length;
 
+    // --- Environment 조립 (git 메타데이터) ---
+    let environment: CtrfEnvironment | undefined;
+    if (this.gitInfo.commit || this.gitInfo.branch) {
+      environment = {
+        ...(this.gitInfo.branch && { branchName: this.gitInfo.branch }),
+        ...(this.gitInfo.commit && { commit: this.gitInfo.commit }),
+        ...(this.gitInfo.repositoryName && { repositoryName: this.gitInfo.repositoryName }),
+        ...(this.gitInfo.repositoryUrl && { repositoryUrl: this.gitInfo.repositoryUrl }),
+        ...(this.gitInfo.tag && { extra: { tag: this.gitInfo.tag } }),
+        osPlatform: process.platform,
+      };
+    }
+
     // --- CtrfReport 조립 ---
     const report: CtrfReport = {
       reportFormat: 'CTRF',
@@ -307,6 +354,7 @@ class FlowReporter implements Reporter {
           duration,
         },
         tests,
+        ...(environment && { environment }),
       },
     };
 

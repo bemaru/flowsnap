@@ -143,4 +143,20 @@ export interface FlowReporterOptions {
   outputDir?: string;
   /** HTML 자동 생성 여부 (기본: true) */
   generateHtml?: boolean;
+  /**
+   * Git 메타데이터 자동 수집 (기본: true)
+   * - true: branch, commit, tag를 자동 수집하여 environment에 포함
+   * - false: git 정보 수집 안 함
+   * - object: 수동 지정 (CI 환경 등에서 env var로 전달할 때)
+   */
+  git?: boolean | GitOptions;
+}
+
+/** Git 메타데이터 수동 지정 옵션 */
+export interface GitOptions {
+  branch?: string;
+  commit?: string;
+  tag?: string;
+  repositoryName?: string;
+  repositoryUrl?: string;
 }
