@@ -179,12 +179,23 @@ body{
 /* Sidebar */
 .sb{
   width:280px;
-  min-width:280px;
-  border-right:1px solid var(--border);
+  min-width:180px;
+  max-width:50vw;
+  border-right:none;
   display:flex;
   flex-direction:column;
   background:var(--bg);
+  position:relative;
 }
+.sb-resize{
+  position:absolute;
+  top:0;right:0;width:4px;height:100%;
+  cursor:col-resize;
+  background:var(--border);
+  z-index:10;
+  transition:background .15s;
+}
+.sb-resize:hover,.sb-resize.active{background:var(--t3)}
 .sb-head{
   padding:20px;
   border-bottom:1px solid var(--border);
@@ -558,6 +569,7 @@ body{
 <button class="sb-toggle" id="sbt">\u2630</button>
 
 <aside class="sb" id="sb">
+  <div class="sb-resize" id="sbResize"></div>
   <div class="sb-head">
     <h1>E2E Flow Report</h1>
     <div class="sb-sub">${reportTime}</div>
@@ -738,6 +750,29 @@ document.getElementById('collapseAll').onclick=function(){
 };
 
 document.getElementById('sbt').onclick=function(){document.getElementById('sb').classList.toggle('open')};
+
+// Sidebar resize
+var sb=document.getElementById('sb');
+var handle=document.getElementById('sbResize');
+var saved=localStorage.getItem('flowsnap-sb-width');
+if(saved)sb.style.width=saved+'px';
+handle.addEventListener('mousedown',function(e){
+  e.preventDefault();
+  handle.classList.add('active');
+  var startX=e.clientX,startW=sb.offsetWidth;
+  function onMove(e){
+    var w=startW+(e.clientX-startX);
+    if(w>=180&&w<=window.innerWidth*0.5){sb.style.width=w+'px'}
+  }
+  function onUp(){
+    handle.classList.remove('active');
+    localStorage.setItem('flowsnap-sb-width',sb.offsetWidth);
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+});
 })();
 </script>
 </body>

@@ -1,7 +1,7 @@
 {
   "name": "flowsnap",
   "version": "0.0.3",
-  "description": "Capture your product flows as visual documents",
+  "description": "Playwright reporter that captures E2E test flows as visual HTML documents with screenshots",
   "license": "MIT",
   "author": "bemaru",
   "repository": {
@@ -43,13 +43,19 @@
   },
   "keywords": [
     "playwright",
+    "playwright-reporter",
     "e2e",
+    "e2e-testing",
     "screenshot",
     "flow",
     "reporter",
     "ctrf",
     "test",
+    "testing",
     "visual",
+    "html-report",
+    "test-report",
+    "test-visualization",
     "user-flow",
     "user-journey"
   ]
