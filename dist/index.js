@@ -79,7 +79,12 @@ function toBase64(filePath) {
   }
 }
 function buildHtml(report, base64Map) {
-  const { summary, tests } = report.results;
+  const { summary } = report.results;
+  const tests = [...report.results.tests].sort((a, b) => {
+    const fa = a.filePath ?? "";
+    const fb = b.filePath ?? "";
+    return fa < fb ? -1 : fa > fb ? 1 : 0;
+  });
   const ssMap = /* @__PURE__ */ new Map();
   for (const t of tests) {
     const shots = t.extra?.flow?.screenshots ?? [];
@@ -132,17 +137,13 @@ function buildHtml(report, base64Map) {
 </div>`;
   }
   const sbTree = Array.from(root.children.values()).map((child) => renderNode(child, 0)).join("\n");
-  const projectGroups = /* @__PURE__ */ new Map();
-  tests.forEach((t, i) => {
-    const proj = t.suite?.[0] ?? "default";
-    const group = projectGroups.get(proj) || [];
-    group.push({ test: t, idx: i });
-    projectGroups.set(proj, group);
-  });
-  const orderedTests = [];
-  for (const [, items] of Array.from(projectGroups)) {
-    for (const item of items) orderedTests.push(item);
+  function collectInTreeOrder(node) {
+    const result = [];
+    for (const child of node.children.values()) result.push(...collectInTreeOrder(child));
+    result.push(...node.tests);
+    return result;
   }
+  const orderedTests = collectInTreeOrder(root);
   const lanesHtml = orderedTests.map(({ test: t, idx: i }) => {
     const ind = STATUS_INDICATOR[t.status] || STATUS_INDICATOR.other;
     const shots = t.extra?.flow?.screenshots ?? [];

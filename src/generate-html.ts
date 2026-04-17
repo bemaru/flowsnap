@@ -57,7 +57,14 @@ function toBase64(filePath: string): string {
 // --- HTML builder ---
 
 function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
-  const { summary, tests } = report.results;
+  const { summary } = report.results;
+
+  // Sort tests by filePath (stable) so file-based ordering (01-, 02-, 03-...) is preserved
+  const tests = [...report.results.tests].sort((a, b) => {
+    const fa = a.filePath ?? '';
+    const fb = b.filePath ?? '';
+    return fa < fb ? -1 : fa > fb ? 1 : 0;
+  });
 
   // 전체 스크린샷 맵 구축
   const ssMap = new Map<string, FlowScreenshot>();
@@ -136,20 +143,14 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
     .map((child) => renderNode(child, 0))
     .join('\n');
 
-  // Collect all tests in tree order for lanes
-  const projectGroups = new Map<string, { test: CtrfTest; idx: number }[]>();
-  tests.forEach((t, i) => {
-    const proj = t.suite?.[0] ?? 'default';
-    const group = projectGroups.get(proj) || [];
-    group.push({ test: t, idx: i });
-    projectGroups.set(proj, group);
-  });
-
-  // Reorder tests to match tree order (project groups)
-  const orderedTests: { test: CtrfTest; idx: number }[] = [];
-  for (const [, items] of Array.from(projectGroups)) {
-    for (const item of items) orderedTests.push(item);
+  // Collect all tests in tree order (matching sidebar visual order)
+  function collectInTreeOrder(node: TreeNode): { test: CtrfTest; idx: number }[] {
+    const result: { test: CtrfTest; idx: number }[] = [];
+    for (const child of node.children.values()) result.push(...collectInTreeOrder(child));
+    result.push(...node.tests);
+    return result;
   }
+  const orderedTests = collectInTreeOrder(root);
 
   // Flow lanes — in tree order
   const lanesHtml = orderedTests
