@@ -169,14 +169,14 @@ function buildHtml(report, base64Map) {
       shots: (t.extra?.flow?.screenshots ?? []).map((ss) => ({ src: base64Map.get(ss.id) || "", label: ss.label, url: ss.url })).filter((s) => s.src)
     }))
   );
-  const reportTime = report.timestamp ? esc(new Date(report.timestamp).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })) : "";
+  const reportTime = report.timestamp ? esc(new Date(report.timestamp).toISOString()) : "";
   const durationMs = summary.duration ?? 0;
   const env = report.results.environment;
   const gitBranch = env?.branchName ? esc(env.branchName) : "";
   const gitCommit = env?.commit ? esc(env.commit) : "";
   const gitTag = env?.extra?.tag ? esc(String(env.extra.tag)) : "";
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -623,8 +623,8 @@ body{
     ${summary.pending > 0 ? '<button data-f="pending">pending</button>' : ""}
     ${tests.some((t) => t.status === "other") ? '<button data-f="other">other</button>' : ""}
     <span class="sb-tree-toggle">
-      <button id="expandAll" title="\uC804\uCCB4 \uD3BC\uCE58\uAE30">+</button>
-      <button id="collapseAll" title="\uC804\uCCB4 \uC811\uAE30">\u2212</button>
+      <button id="expandAll" title="Expand all">+</button>
+      <button id="collapseAll" title="Collapse all">\u2212</button>
     </span>
   </div>
   <div class="sb-search"><input id="search" type="text" placeholder="search tests..." autocomplete="off"/></div>
@@ -761,7 +761,7 @@ document.getElementById('search').addEventListener('input',function(e){
     var visible=g.querySelectorAll('.sb-row[style*="flex"]').length>0||!q;
     g.style.display=visible?'block':'none';
   });
-  // lane\uB3C4 \uD544\uD130
+  // Filter lanes too.
   document.querySelectorAll('.lane').forEach(function(l,i){
     var title=l.querySelector('.lane-title').textContent.toLowerCase();
     l.style.display=(!q||title.includes(q))?'block':'none';

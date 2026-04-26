@@ -28,9 +28,11 @@
   ],
   "scripts": {
     "build": "tsup",
+    "check": "npm run typecheck && npm run build",
     "dev": "tsup --watch",
+    "example:basic": "npm run build && playwright test -c examples/basic/playwright.config.ts",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run check"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.40.0"

@@ -26,7 +26,7 @@ __export(fixture_exports, {
 module.exports = __toCommonJS(fixture_exports);
 var import_test = require("@playwright/test");
 function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-|-$/g, "");
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
 }
 function getPathname(url) {
   try {
@@ -45,18 +45,18 @@ function getSearch(url) {
 function buildLabel(url, previousUrl, isFirst) {
   const pathname = getPathname(url);
   if (isFirst) {
-    return `\uC2DC\uC791: ${pathname}`;
+    return `Start: ${pathname}`;
   }
   if (previousUrl === null) {
-    return `\uC2DC\uC791: ${pathname}`;
+    return `Start: ${pathname}`;
   }
   const prevPathname = getPathname(previousUrl);
   const prevSearch = getSearch(previousUrl);
   const currSearch = getSearch(url);
   if (prevPathname === pathname && prevSearch !== currSearch) {
-    return "\uD544\uD130 \uBCC0\uACBD";
+    return "Query changed";
   }
-  return `${pathname} \uC774\uB3D9`;
+  return `Navigate to ${pathname}`;
 }
 var test = import_test.test.extend({
   page: async ({ page }, use, testInfo) => {
@@ -65,6 +65,7 @@ var test = import_test.test.extend({
     const screenshots = [];
     let index = 0;
     let previousUrl = null;
+    let lastObservedUrl = null;
     let lastCapturedPathname = "";
     let lastCapturedSearch = "";
     const pendingUrls = /* @__PURE__ */ new Set();
@@ -86,7 +87,7 @@ var test = import_test.test.extend({
         const metadata = {
           id: screenshotId,
           url,
-          previousUrl,
+          previousUrl: options?.previousUrl ?? previousUrl,
           timestamp: Date.now(),
           screenshotPath,
           label
@@ -111,17 +112,19 @@ var test = import_test.test.extend({
       if (!url || url === "about:blank" || url.startsWith("chrome")) {
         return;
       }
-      const isFirst = index === 0;
-      const label = buildLabel(url, previousUrl, isFirst);
+      const previousObservedUrl = lastObservedUrl;
+      const isFirst = previousObservedUrl === null;
+      const label = buildLabel(url, previousObservedUrl, isFirst);
+      lastObservedUrl = url;
       try {
-        await captureScreenshot(url, label);
+        await captureScreenshot(url, label, { previousUrl: previousObservedUrl });
       } catch {
       }
     });
     await use(page);
     try {
       const finalUrl = page.url();
-      await captureScreenshot(finalUrl, "\uCD5C\uC885 \uC0C1\uD0DC", { force: true });
+      await captureScreenshot(finalUrl, "Final state", { force: true });
     } catch {
     }
     try {

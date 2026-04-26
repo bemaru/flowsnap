@@ -1,8 +1,8 @@
 /**
  * flowsnap - Playwright Test Fixture
  *
- * 페이지 네비게이션을 자동 감지하여 스크린샷과 메타데이터를 수집하는
- * Playwright test fixture.
+ * Playwright test fixture that detects page navigation and collects
+ * screenshots with flow metadata.
  */
 
 import { test as base, expect } from '@playwright/test';
@@ -11,11 +11,11 @@ import type { FlowScreenshot } from './types';
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '');
 }
 
-/** URL에서 pathname을 추출 (쿼리스트링/해시 제외) */
+/** Extract the pathname from a URL, excluding query string and hash. */
 function getPathname(url: string): string {
   try {
     return new URL(url).pathname;
@@ -24,7 +24,7 @@ function getPathname(url: string): string {
   }
 }
 
-/** URL에서 쿼리스트링을 추출 */
+/** Extract the query string from a URL. */
 function getSearch(url: string): string {
   try {
     return new URL(url).search;
@@ -33,7 +33,7 @@ function getSearch(url: string): string {
   }
 }
 
-/** URL 변화에 기반한 의미 있는 라벨 생성 */
+/** Build a readable label from the URL change. */
 function buildLabel(
   url: string,
   previousUrl: string | null,
@@ -42,24 +42,24 @@ function buildLabel(
   const pathname = getPathname(url);
 
   if (isFirst) {
-    return `시작: ${pathname}`;
+    return `Start: ${pathname}`;
   }
 
   if (previousUrl === null) {
-    return `시작: ${pathname}`;
+    return `Start: ${pathname}`;
   }
 
   const prevPathname = getPathname(previousUrl);
   const prevSearch = getSearch(previousUrl);
   const currSearch = getSearch(url);
 
-  // pathname이 같고 쿼리스트링만 변경된 경우
+  // Same pathname, query string changed.
   if (prevPathname === pathname && prevSearch !== currSearch) {
-    return '필터 변경';
+    return 'Query changed';
   }
 
-  // pathname이 변경된 경우
-  return `${pathname} 이동`;
+  // Pathname changed.
+  return `Navigate to ${pathname}`;
 }
 
 export const test = base.extend({
@@ -70,23 +70,24 @@ export const test = base.extend({
     const screenshots: FlowScreenshot[] = [];
     let index = 0;
     let previousUrl: string | null = null;
+    let lastObservedUrl: string | null = null;
 
-    /** 마지막으로 스크린샷을 촬영한 URL (pathname + search) */
+    /** Last captured URL, using pathname + search. */
     let lastCapturedPathname = '';
     let lastCapturedSearch = '';
-    /** 진행 중인 URL (race condition 방지) */
+    /** URLs currently being captured, used to avoid race conditions. */
     const pendingUrls = new Set<string>();
 
     const captureScreenshot = async (
       url: string,
       label: string,
-      options?: { force?: boolean },
+      options?: { force?: boolean; previousUrl?: string | null },
     ) => {
       const pathname = getPathname(url);
       const search = getSearch(url);
       const urlKey = `${pathname}${search}`;
 
-      // 중복 방지: pathname과 search가 모두 동일하면 스킵 (force 제외)
+      // Skip duplicates when pathname and search are identical, unless forced.
       if (
         !options?.force &&
         (pendingUrls.has(urlKey) ||
@@ -98,11 +99,11 @@ export const test = base.extend({
       pendingUrls.add(urlKey);
 
       try {
-        // 렌더링 대기: networkidle 후 추가 대기
+        // Wait for rendering: networkidle plus a short buffer.
         await page
           .waitForLoadState('networkidle', { timeout: 3000 })
           .catch(() => {
-            /* timeout 무시 */
+            /* ignore timeout */
           });
         await page.waitForTimeout(300);
 
@@ -113,7 +114,7 @@ export const test = base.extend({
         const metadata: FlowScreenshot = {
           id: screenshotId,
           url,
-          previousUrl,
+          previousUrl: options?.previousUrl ?? previousUrl,
           timestamp: Date.now(),
           screenshotPath,
           label,
@@ -131,42 +132,44 @@ export const test = base.extend({
         lastCapturedSearch = search;
         index++;
       } catch {
-        // 에러 발생 시 테스트 실패를 유발하지 않음
+        // Screenshot failures must not fail the test.
       }
     };
 
     page.on('framenavigated', async (frame) => {
-      // 메인 프레임 네비게이션만 처리
+      // Only handle main-frame navigation.
       if (frame !== page.mainFrame()) {
         return;
       }
 
       const url = frame.url();
-      // about:blank, chrome 내부 URL 무시
+      // Ignore about:blank and chrome internal URLs.
       if (!url || url === 'about:blank' || url.startsWith('chrome')) {
         return;
       }
-      const isFirst = index === 0;
-      const label = buildLabel(url, previousUrl, isFirst);
+      const previousObservedUrl = lastObservedUrl;
+      const isFirst = previousObservedUrl === null;
+      const label = buildLabel(url, previousObservedUrl, isFirst);
+      lastObservedUrl = url;
 
       try {
-        await captureScreenshot(url, label);
+        await captureScreenshot(url, label, { previousUrl: previousObservedUrl });
       } catch {
-        // 에러 무시
+        // Ignore capture failures.
       }
     });
 
     await use(page);
 
-    // 테스트 끝에서 최종 스크린샷 촬영
+    // Capture the final state at test end.
     try {
       const finalUrl = page.url();
-      await captureScreenshot(finalUrl, '최종 상태', { force: true });
+      await captureScreenshot(finalUrl, 'Final state', { force: true });
     } catch {
-      // 에러 무시
+      // Ignore capture failures.
     }
 
-    // 메타데이터 첨부
+    // Attach metadata.
     try {
       if (screenshots.length > 0) {
         await testInfo.attach('flow-metadata', {
@@ -175,7 +178,7 @@ export const test = base.extend({
         });
       }
     } catch {
-      // 에러 무시
+      // Ignore attachment failures.
     }
   },
 });

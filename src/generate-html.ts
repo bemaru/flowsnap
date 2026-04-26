@@ -1,8 +1,8 @@
 /**
  * flowsnap - HTML Report Generator
  *
- * ctrf-report.json(CTRF 포맷)과 스크린샷을 읽어서 self-contained HTML 리포트를 생성.
- * 디자인: 모노스페이스, 흑백 기조, 넉넉한 여백, 장식 최소화.
+ * Reads ctrf-report.json (CTRF format) and screenshots to generate a
+ * self-contained HTML report.
  */
 
 import * as fs from 'fs';
@@ -66,7 +66,7 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
     return fa < fb ? -1 : fa > fb ? 1 : 0;
   });
 
-  // 전체 스크린샷 맵 구축
+  // Build the full screenshot map.
   const ssMap = new Map<string, FlowScreenshot>();
   for (const t of tests) {
     const shots = t.extra?.flow?.screenshots ?? [];
@@ -204,20 +204,20 @@ function buildHtml(report: CtrfReport, base64Map: Map<string, string>): string {
       })),
   );
 
-  // timestamp 표시
+  // Timestamp display.
   const reportTime = report.timestamp
-    ? esc(new Date(report.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }))
+    ? esc(new Date(report.timestamp).toISOString())
     : '';
   const durationMs = summary.duration ?? 0;
 
-  // git 메타데이터
+  // Git metadata.
   const env = report.results.environment;
   const gitBranch = env?.branchName ? esc(env.branchName) : '';
   const gitCommit = env?.commit ? esc(env.commit) : '';
   const gitTag = env?.extra?.tag ? esc(String(env.extra.tag)) : '';
 
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -664,8 +664,8 @@ body{
     ${summary.pending > 0 ? '<button data-f="pending">pending</button>' : ''}
     ${tests.some((t) => t.status === 'other') ? '<button data-f="other">other</button>' : ''}
     <span class="sb-tree-toggle">
-      <button id="expandAll" title="전체 펼치기">+</button>
-      <button id="collapseAll" title="전체 접기">−</button>
+      <button id="expandAll" title="Expand all">+</button>
+      <button id="collapseAll" title="Collapse all">−</button>
     </span>
   </div>
   <div class="sb-search"><input id="search" type="text" placeholder="search tests..." autocomplete="off"/></div>
@@ -802,7 +802,7 @@ document.getElementById('search').addEventListener('input',function(e){
     var visible=g.querySelectorAll('.sb-row[style*="flex"]').length>0||!q;
     g.style.display=visible?'block':'none';
   });
-  // lane도 필터
+  // Filter lanes too.
   document.querySelectorAll('.lane').forEach(function(l,i){
     var title=l.querySelector('.lane-title').textContent.toLowerCase();
     l.style.display=(!q||title.includes(q))?'block':'none';

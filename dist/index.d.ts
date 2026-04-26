@@ -7,8 +7,8 @@ import 'playwright/test';
 /**
  * flowsnap - CTRF-based Flow Report Types
  *
- * CTRF (Common Test Report Format) 스키마를 기반으로 하되,
- * extra.flow 네임스페이스에 스크린샷 흐름 데이터를 확장.
+ * Based on the CTRF (Common Test Report Format) schema, with screenshot
+ * flow data added under the extra.flow namespace.
  *
  * @see https://ctrf.io/docs/full-schema
  * @see https://github.com/ctrf-io/ctrf/blob/main/spec/ctrf.md
@@ -94,52 +94,52 @@ interface CtrfEnvironment {
     testEnvironment?: string;
     extra?: Record<string, unknown>;
 }
-/** test.extra에 포함되는 flow 확장 데이터 */
+/** Flow extension data stored under test.extra. */
 interface CtrfTestExtra {
     flow?: FlowData;
     [key: string]: unknown;
 }
-/** extra.flow의 구조 */
+/** Shape of extra.flow. */
 interface FlowData {
     screenshots: FlowScreenshot[];
     edges: FlowEdge[];
 }
-/** 개별 스크린샷 메타데이터 */
+/** Metadata for one screenshot. */
 interface FlowScreenshot {
-    /** 고유 ID */
+    /** Unique ID. */
     id: string;
-    /** 촬영 시점의 URL */
+    /** URL captured at screenshot time. */
     url: string;
-    /** 이전 URL */
+    /** Previous URL. */
     previousUrl: string | null;
-    /** 촬영 타임스탬프 (ms) */
+    /** Capture timestamp in milliseconds. */
     timestamp: number;
-    /** 스크린샷 파일 경로 (리포트 디렉토리 기준 상대 경로) */
+    /** Screenshot file path relative to the report directory. */
     screenshotPath: string;
-    /** 설명 라벨 */
+    /** Human-readable label. */
     label: string;
 }
-/** 스크린샷 간 연결 (화면 전환) */
+/** Connection between screenshots (screen transition). */
 interface FlowEdge {
     from: string;
     to: string;
     label?: string;
 }
-/** Reporter 옵션 */
+/** Reporter options. */
 interface FlowReporterOptions {
-    /** 결과 출력 디렉토리 (기본: ./flow-report) */
+    /** Output directory. Default: ./flow-report. */
     outputDir?: string;
-    /** HTML 자동 생성 여부 (기본: true) */
+    /** Whether to generate HTML automatically. Default: true. */
     generateHtml?: boolean;
     /**
-     * Git 메타데이터 자동 수집 (기본: true)
-     * - true: branch, commit, tag를 자동 수집하여 environment에 포함
-     * - false: git 정보 수집 안 함
-     * - object: 수동 지정 (CI 환경 등에서 env var로 전달할 때)
+     * Git metadata collection. Default: true.
+     * - true: collect branch, commit, and tag automatically for environment
+     * - false: do not collect git metadata
+     * - object: specify values manually, such as from CI environment variables
      */
     git?: boolean | GitOptions;
 }
-/** Git 메타데이터 수동 지정 옵션 */
+/** Manual git metadata options. */
 interface GitOptions {
     branch?: string;
     commit?: string;
@@ -151,13 +151,13 @@ interface GitOptions {
 /**
  * flowsnap - Playwright Custom Reporter (CTRF Format)
  *
- * 테스트 실행 중 수집된 스크린샷과 메타데이터를 모아
- * CTRF(Common Test Report Format) 규격의 ctrf-report.json을 생성하고,
- * HTML 생성기를 호출한다.
+ * Collects screenshots and metadata during Playwright runs, writes
+ * a CTRF (Common Test Report Format) ctrf-report.json file, and invokes
+ * the HTML generator.
  *
- * flow 데이터(screenshots, edges)는 각 test.extra.flow에 포함.
- * retry 병합: 같은 테스트의 여러 attempt 중 마지막 attempt만 기록.
- * 이전 attempt의 스크린샷 파일은 자동 삭제.
+ * Flow data (screenshots, edges) is stored in each test.extra.flow object.
+ * Retry handling keeps only the last attempt for each test.
+ * Screenshot files from previous attempts are cleaned up automatically.
  */
 
 declare class FlowReporter implements Reporter {
@@ -166,7 +166,7 @@ declare class FlowReporter implements Reporter {
     private generateHtml;
     private gitOption;
     private gitInfo;
-    /** testId → 마지막 attempt 결과 (덮어쓰기로 병합) */
+    /** testId -> last attempt result (overwritten on retry). */
     private testMap;
     private startTime;
     constructor(options?: FlowReporterOptions);

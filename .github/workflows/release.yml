@@ -22,6 +22,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify tag matches package version
+        run: |
+          PACKAGE_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$PACKAGE_VERSION" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match package version $PACKAGE_VERSION"
+            exit 1
+          fi
+
       - run: npm run typecheck
 
       - run: npm run build

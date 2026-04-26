@@ -1,8 +1,8 @@
 /**
  * flowsnap - CTRF-based Flow Report Types
  *
- * CTRF (Common Test Report Format) 스키마를 기반으로 하되,
- * extra.flow 네임스페이스에 스크린샷 흐름 데이터를 확장.
+ * Based on the CTRF (Common Test Report Format) schema, with screenshot
+ * flow data added under the extra.flow namespace.
  *
  * @see https://ctrf.io/docs/full-schema
  * @see https://github.com/ctrf-io/ctrf/blob/main/spec/ctrf.md
@@ -102,57 +102,57 @@ export interface CtrfEnvironment {
 
 // --- Flow Extension (extra.flow) ---
 
-/** test.extra에 포함되는 flow 확장 데이터 */
+/** Flow extension data stored under test.extra. */
 export interface CtrfTestExtra {
   flow?: FlowData;
   [key: string]: unknown;
 }
 
-/** extra.flow의 구조 */
+/** Shape of extra.flow. */
 export interface FlowData {
   screenshots: FlowScreenshot[];
   edges: FlowEdge[];
 }
 
-/** 개별 스크린샷 메타데이터 */
+/** Metadata for one screenshot. */
 export interface FlowScreenshot {
-  /** 고유 ID */
+  /** Unique ID. */
   id: string;
-  /** 촬영 시점의 URL */
+  /** URL captured at screenshot time. */
   url: string;
-  /** 이전 URL */
+  /** Previous URL. */
   previousUrl: string | null;
-  /** 촬영 타임스탬프 (ms) */
+  /** Capture timestamp in milliseconds. */
   timestamp: number;
-  /** 스크린샷 파일 경로 (리포트 디렉토리 기준 상대 경로) */
+  /** Screenshot file path relative to the report directory. */
   screenshotPath: string;
-  /** 설명 라벨 */
+  /** Human-readable label. */
   label: string;
 }
 
-/** 스크린샷 간 연결 (화면 전환) */
+/** Connection between screenshots (screen transition). */
 export interface FlowEdge {
   from: string;
   to: string;
   label?: string;
 }
 
-/** Reporter 옵션 */
+/** Reporter options. */
 export interface FlowReporterOptions {
-  /** 결과 출력 디렉토리 (기본: ./flow-report) */
+  /** Output directory. Default: ./flow-report. */
   outputDir?: string;
-  /** HTML 자동 생성 여부 (기본: true) */
+  /** Whether to generate HTML automatically. Default: true. */
   generateHtml?: boolean;
   /**
-   * Git 메타데이터 자동 수집 (기본: true)
-   * - true: branch, commit, tag를 자동 수집하여 environment에 포함
-   * - false: git 정보 수집 안 함
-   * - object: 수동 지정 (CI 환경 등에서 env var로 전달할 때)
+   * Git metadata collection. Default: true.
+   * - true: collect branch, commit, and tag automatically for environment
+   * - false: do not collect git metadata
+   * - object: specify values manually, such as from CI environment variables
    */
   git?: boolean | GitOptions;
 }
 
-/** Git 메타데이터 수동 지정 옵션 */
+/** Manual git metadata options. */
 export interface GitOptions {
   branch?: string;
   commit?: string;

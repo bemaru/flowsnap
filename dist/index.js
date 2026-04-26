@@ -179,14 +179,14 @@ function buildHtml(report, base64Map) {
       shots: (t.extra?.flow?.screenshots ?? []).map((ss) => ({ src: base64Map.get(ss.id) || "", label: ss.label, url: ss.url })).filter((s) => s.src)
     }))
   );
-  const reportTime = report.timestamp ? esc(new Date(report.timestamp).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })) : "";
+  const reportTime = report.timestamp ? esc(new Date(report.timestamp).toISOString()) : "";
   const durationMs = summary.duration ?? 0;
   const env = report.results.environment;
   const gitBranch = env?.branchName ? esc(env.branchName) : "";
   const gitCommit = env?.commit ? esc(env.commit) : "";
   const gitTag = env?.extra?.tag ? esc(String(env.extra.tag)) : "";
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -633,8 +633,8 @@ body{
     ${summary.pending > 0 ? '<button data-f="pending">pending</button>' : ""}
     ${tests.some((t) => t.status === "other") ? '<button data-f="other">other</button>' : ""}
     <span class="sb-tree-toggle">
-      <button id="expandAll" title="\uC804\uCCB4 \uD3BC\uCE58\uAE30">+</button>
-      <button id="collapseAll" title="\uC804\uCCB4 \uC811\uAE30">\u2212</button>
+      <button id="expandAll" title="Expand all">+</button>
+      <button id="collapseAll" title="Collapse all">\u2212</button>
     </span>
   </div>
   <div class="sb-search"><input id="search" type="text" placeholder="search tests..." autocomplete="off"/></div>
@@ -771,7 +771,7 @@ document.getElementById('search').addEventListener('input',function(e){
     var visible=g.querySelectorAll('.sb-row[style*="flex"]').length>0||!q;
     g.style.display=visible?'block':'none';
   });
-  // lane\uB3C4 \uD544\uD130
+  // Filter lanes too.
   document.querySelectorAll('.lane').forEach(function(l,i){
     var title=l.querySelector('.lane-title').textContent.toLowerCase();
     l.style.display=(!q||title.includes(q))?'block':'none';
@@ -862,7 +862,7 @@ function collectGitInfo() {
   };
 }
 function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-+|-+$/g, "");
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
 }
 function mapStatus(status) {
   switch (status) {
@@ -882,7 +882,7 @@ var FlowReporter = class {
   constructor(options = {}) {
     this.screenshotsDir = "";
     this.gitInfo = {};
-    /** testId → 마지막 attempt 결과 (덮어쓰기로 병합) */
+    /** testId -> last attempt result (overwritten on retry). */
     this.testMap = /* @__PURE__ */ new Map();
     this.startTime = 0;
     this.outputDir = options.outputDir ?? "./flow-report";
@@ -976,7 +976,7 @@ var FlowReporter = class {
           previousUrl: null,
           timestamp: Date.now(),
           screenshotPath: `screenshots/${fileName}`,
-          label: attachment.name === "screenshot" ? "\uD14C\uC2A4\uD2B8 \uC885\uB8CC \uC2DC\uC810" : attachment.name
+          label: attachment.name === "screenshot" ? "Test end" : attachment.name
         });
         screenshotIds.push(screenshotId);
       });
@@ -1096,7 +1096,7 @@ var reporter_default = FlowReporter;
 // src/fixture.ts
 var import_test = require("@playwright/test");
 function slugify2(text) {
-  return text.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "-").replace(/^-|-$/g, "");
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
 }
 function getPathname(url) {
   try {
@@ -1115,18 +1115,18 @@ function getSearch(url) {
 function buildLabel(url, previousUrl, isFirst) {
   const pathname = getPathname(url);
   if (isFirst) {
-    return `\uC2DC\uC791: ${pathname}`;
+    return `Start: ${pathname}`;
   }
   if (previousUrl === null) {
-    return `\uC2DC\uC791: ${pathname}`;
+    return `Start: ${pathname}`;
   }
   const prevPathname = getPathname(previousUrl);
   const prevSearch = getSearch(previousUrl);
   const currSearch = getSearch(url);
   if (prevPathname === pathname && prevSearch !== currSearch) {
-    return "\uD544\uD130 \uBCC0\uACBD";
+    return "Query changed";
   }
-  return `${pathname} \uC774\uB3D9`;
+  return `Navigate to ${pathname}`;
 }
 var test = import_test.test.extend({
   page: async ({ page }, use, testInfo) => {
@@ -1135,6 +1135,7 @@ var test = import_test.test.extend({
     const screenshots = [];
     let index = 0;
     let previousUrl = null;
+    let lastObservedUrl = null;
     let lastCapturedPathname = "";
     let lastCapturedSearch = "";
     const pendingUrls = /* @__PURE__ */ new Set();
@@ -1156,7 +1157,7 @@ var test = import_test.test.extend({
         const metadata = {
           id: screenshotId,
           url,
-          previousUrl,
+          previousUrl: options?.previousUrl ?? previousUrl,
           timestamp: Date.now(),
           screenshotPath,
           label
@@ -1181,17 +1182,19 @@ var test = import_test.test.extend({
       if (!url || url === "about:blank" || url.startsWith("chrome")) {
         return;
       }
-      const isFirst = index === 0;
-      const label = buildLabel(url, previousUrl, isFirst);
+      const previousObservedUrl = lastObservedUrl;
+      const isFirst = previousObservedUrl === null;
+      const label = buildLabel(url, previousObservedUrl, isFirst);
+      lastObservedUrl = url;
       try {
-        await captureScreenshot(url, label);
+        await captureScreenshot(url, label, { previousUrl: previousObservedUrl });
       } catch {
       }
     });
     await use(page);
     try {
       const finalUrl = page.url();
-      await captureScreenshot(finalUrl, "\uCD5C\uC885 \uC0C1\uD0DC", { force: true });
+      await captureScreenshot(finalUrl, "Final state", { force: true });
     } catch {
     }
     try {

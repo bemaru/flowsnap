@@ -94,6 +94,28 @@ export default defineConfig({
 
 ---
 
+## Example / Demo
+
+A deterministic example lives in [`examples/basic`](./examples/basic). It stubs a small checkout flow locally with Playwright routing, then writes a flowsnap report.
+
+From the repository root:
+
+```bash
+npm install
+npm run example:basic
+```
+
+If Chromium is not installed yet:
+
+```bash
+npx playwright install chromium
+npm run example:basic
+```
+
+Open `examples/basic/flow-report/index.html` after the run. Generated reports and Playwright output are ignored by git.
+
+---
+
 ## Configuration
 
 Pass options as the second element of the reporter tuple:
@@ -219,6 +241,32 @@ await generateFlowHtml('./flow-report/ctrf-report.json', './flow-report/index.ht
 ```
 
 Or from the command line by running the generate-html module directly.
+
+---
+
+## Maintainer Checks
+
+Before publishing or cutting a release tag, run:
+
+```bash
+npm run check
+npm pack --dry-run
+```
+
+For a smoke test that exercises the fixture and reporter together:
+
+```bash
+npm run example:basic
+```
+
+The release workflow publishes only from `v*` tags and now verifies that the pushed tag matches `package.json` (for example, `v0.0.3` for version `0.0.3`).
+
+### Public-readiness Caveats
+
+- This package is still pre-1.0. Treat APIs and report shape as subject to change until a stable release is declared.
+- Automated coverage is currently limited to typecheck/build and the example smoke path. Add focused unit or integration tests before relying on release automation alone.
+- No committed sample report is included because reports can contain screenshots, URLs, stack traces, and other sensitive data. Use the example to generate one locally when needed.
+- Confirm npm package version, git tag, and GitHub release notes are aligned before any public announcement.
 
 ---
 

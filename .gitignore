@@ -1,4 +1,12 @@
+# Dependencies and build artifacts
 node_modules/
 dist/
 *.tgz
+
+# Playwright and flowsnap generated output
+flow-report/
+test-results/
+playwright-report/
+
+# OS files
 .DS_Store

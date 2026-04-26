@@ -1,8 +1,8 @@
 /**
  * flowsnap - E2E Visual Flow Reporter for Playwright
  *
- * Playwright 테스트의 스크린샷 흐름을 CTRF 포맷으로 수집하고
- * self-contained HTML 리포트를 생성합니다.
+ * Collects Playwright screenshot flows in CTRF format and generates
+ * a self-contained HTML report.
  */
 
 export { default } from './reporter';

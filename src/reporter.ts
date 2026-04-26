@@ -1,13 +1,13 @@
 /**
  * flowsnap - Playwright Custom Reporter (CTRF Format)
  *
- * 테스트 실행 중 수집된 스크린샷과 메타데이터를 모아
- * CTRF(Common Test Report Format) 규격의 ctrf-report.json을 생성하고,
- * HTML 생성기를 호출한다.
+ * Collects screenshots and metadata during Playwright runs, writes
+ * a CTRF (Common Test Report Format) ctrf-report.json file, and invokes
+ * the HTML generator.
  *
- * flow 데이터(screenshots, edges)는 각 test.extra.flow에 포함.
- * retry 병합: 같은 테스트의 여러 attempt 중 마지막 attempt만 기록.
- * 이전 attempt의 스크린샷 파일은 자동 삭제.
+ * Flow data (screenshots, edges) is stored in each test.extra.flow object.
+ * Retry handling keeps only the last attempt for each test.
+ * Screenshot files from previous attempts are cleaned up automatically.
  */
 
 import * as fs from 'node:fs';
@@ -35,7 +35,7 @@ import type {
 } from './types';
 import { generateFlowHtml } from './generate-html';
 
-/** git 명령 실행 헬퍼 — 실패 시 undefined 반환 */
+/** Run a git command and return undefined on failure. */
 function gitExec(cmd: string): string | undefined {
   try {
     return execSync(cmd, { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim() || undefined;
@@ -44,7 +44,7 @@ function gitExec(cmd: string): string | undefined {
   }
 }
 
-/** git 메타데이터 자동 수집 */
+/** Collect git metadata automatically. */
 function collectGitInfo(): GitOptions {
   return {
     branch: gitExec('git branch --show-current'),
@@ -59,11 +59,11 @@ function collectGitInfo(): GitOptions {
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-+|-+$/g, '');
 }
 
-/** 상태 매핑: Playwright → CTRF */
+/** Map Playwright status to CTRF status. */
 function mapStatus(status: TestResult['status']): CtrfTestStatus {
   switch (status) {
     case 'passed':
@@ -79,10 +79,10 @@ function mapStatus(status: TestResult['status']): CtrfTestStatus {
   }
 }
 
-/** 단일 테스트의 attempt 결과를 담는 중간 구조 */
+/** Intermediate result for a single test attempt. */
 interface TestEntry {
   ctrfTest: CtrfTest;
-  /** 이전 attempt의 스크린샷 파일명 (정리용) */
+  /** Screenshot file names from previous attempts, used for cleanup. */
   previousScreenshotFiles: string[];
 }
 
@@ -93,7 +93,7 @@ class FlowReporter implements Reporter {
   private gitOption: boolean | GitOptions;
   private gitInfo: GitOptions = {};
 
-  /** testId → 마지막 attempt 결과 (덮어쓰기로 병합) */
+  /** testId -> last attempt result (overwritten on retry). */
   private testMap = new Map<string, TestEntry>();
   private startTime = 0;
 
@@ -109,7 +109,7 @@ class FlowReporter implements Reporter {
     this.screenshotsDir = path.join(this.outputDir, 'screenshots');
     fs.mkdirSync(this.screenshotsDir, { recursive: true });
 
-    // Git 메타데이터 수집
+    // Collect git metadata.
     if (this.gitOption === true) {
       this.gitInfo = collectGitInfo();
     } else if (this.gitOption && typeof this.gitOption === 'object') {
@@ -123,20 +123,20 @@ class FlowReporter implements Reporter {
     const testId = slugify(`${projectName}-${title}`);
     const retry = result.retry;
 
-    // --- suite 구성: [projectName, ...describe 부분] ---
+    // --- Build suite: [projectName, ...describe segments] ---
     const titlePath = test.titlePath().filter(Boolean);
     // titlePath: [projectName?, file?, ...describes, title]
-    // describe 부분 = titlePath에서 첫 요소(project)와 마지막(title) 제외
+    // Describe segments are everything except the first project/file entry and last title.
     const suite: string[] = [projectName];
     if (titlePath.length > 2) {
-      // 중간 요소가 describe 블록
+      // Middle entries are describe blocks.
       suite.push(...titlePath.slice(1, -1));
     }
 
-    // --- 상태 매핑 ---
+    // --- Status mapping ---
     const ctrfStatus = mapStatus(result.status);
 
-    // --- 메타데이터 파싱 (fixture에서 수집한 FlowScreenshot[]) ---
+    // --- Parse metadata collected by the fixture (FlowScreenshot[]) ---
     let metaScreenshots: FlowScreenshot[] = [];
     const metaAttachment = result.attachments.find(
       (a) => a.name === 'flow-metadata',
@@ -145,11 +145,11 @@ class FlowReporter implements Reporter {
       try {
         metaScreenshots = JSON.parse(metaAttachment.body.toString('utf-8'));
       } catch {
-        // 파싱 실패 시 무시
+        // Ignore invalid metadata.
       }
     }
 
-    // --- 스크린샷 attachment 처리 ---
+    // --- Process screenshot attachments ---
     const screenshotAttachments = result.attachments.filter((a) =>
       a.name.startsWith('flow-screenshot-'),
     );
@@ -163,21 +163,21 @@ class FlowReporter implements Reporter {
       const fileName = `${testId}-a${retry}-${index}.png`;
       const destPath = path.join(this.screenshotsDir, fileName);
 
-      // 파일 복사
+      // Copy file.
       if (attachment.path) {
         fs.copyFileSync(attachment.path, destPath);
       } else if (attachment.body) {
         fs.writeFileSync(destPath, attachment.body);
       }
 
-      // CtrfAttachment 기록
+      // Record CtrfAttachment.
       ctrfAttachments.push({
         name: attachment.name,
         contentType: 'image/png',
         path: `screenshots/${fileName}`,
       });
 
-      // 메타데이터에서 매칭되는 정보 가져오기
+      // Pull matching metadata when available.
       const meta = metaScreenshots[index];
 
       const screenshot: FlowScreenshot = {
@@ -193,7 +193,7 @@ class FlowReporter implements Reporter {
       screenshotIds.push(screenshotId);
     });
 
-    // --- Fallback: fixture 없이 Playwright 기본 screenshot 수집 (모드 1) ---
+    // --- Fallback: collect Playwright's built-in screenshots without the fixture (mode 1) ---
     if (flowScreenshots.length === 0) {
       const builtinScreenshots = result.attachments.filter(
         (a) =>
@@ -225,13 +225,13 @@ class FlowReporter implements Reporter {
           previousUrl: null,
           timestamp: Date.now(),
           screenshotPath: `screenshots/${fileName}`,
-          label: attachment.name === 'screenshot' ? '테스트 종료 시점' : attachment.name,
+          label: attachment.name === 'screenshot' ? 'Test end' : attachment.name,
         });
         screenshotIds.push(screenshotId);
       });
     }
 
-    // --- FlowEdge 생성 (연속된 스크린샷 간) ---
+    // --- Build FlowEdges between consecutive screenshots ---
     const edges: FlowEdge[] = [];
     for (let i = 0; i < screenshotIds.length - 1; i++) {
       const fromId = screenshotIds[i];
@@ -245,7 +245,7 @@ class FlowReporter implements Reporter {
       });
     }
 
-    // --- 에러 정보 ---
+    // --- Error details ---
     let message: string | undefined;
     let trace: string | undefined;
     if (result.error) {
@@ -255,7 +255,7 @@ class FlowReporter implements Reporter {
       if (trace && trace.length > 1000) trace = trace.slice(0, 1000) + '…';
     }
 
-    // --- steps 수집: category === 'test.step'인 것만 ---
+    // --- Collect only category === 'test.step' entries ---
     const steps: CtrfStep[] = result.steps
       .filter((s) => s.category === 'test.step')
       .map((s) => ({
@@ -263,20 +263,20 @@ class FlowReporter implements Reporter {
         status: s.error ? ('failed' as CtrfTestStatus) : ('passed' as CtrfTestStatus),
       }));
 
-    // --- 이전 attempt 스크린샷 파일 수집 (나중에 정리용) ---
+    // --- Collect previous-attempt screenshots for later cleanup ---
     const previousEntry = this.testMap.get(testId);
     const previousScreenshotFiles: string[] = [];
     if (previousEntry) {
-      // 이전 attempt의 attachment 경로 수집
+      // Collect attachment paths from the previous attempt.
       const prevAttachments = previousEntry.ctrfTest.attachments ?? [];
       for (const att of prevAttachments) {
         previousScreenshotFiles.push(path.basename(att.path));
       }
-      // 이전에 누적된 것도 포함
+      // Include any already accumulated cleanup entries.
       previousScreenshotFiles.push(...previousEntry.previousScreenshotFiles);
     }
 
-    // --- CtrfTest 조립 ---
+    // --- Build CtrfTest ---
     const ctrfTest: CtrfTest = {
       name: title,
       status: ctrfStatus,
@@ -295,7 +295,7 @@ class FlowReporter implements Reporter {
         : undefined,
     };
 
-    // testId 기반으로 Map에 저장 (같은 testId면 덮어쓰기 → 마지막 attempt만 남음)
+    // Store by testId; retries overwrite earlier attempts so only the last one remains.
     this.testMap.set(testId, { ctrfTest, previousScreenshotFiles });
   }
 
@@ -303,26 +303,26 @@ class FlowReporter implements Reporter {
     const stopTime = Date.now();
     const duration = stopTime - this.startTime;
 
-    // --- 이전 attempt 스크린샷 파일 삭제 ---
+    // --- Delete screenshots from previous attempts ---
     for (const entry of Array.from(this.testMap.values())) {
       for (const fileName of entry.previousScreenshotFiles) {
         try {
           fs.unlinkSync(path.join(this.screenshotsDir, fileName));
         } catch {
-          // 삭제 실패 시 무시
+          // Ignore cleanup failures.
         }
       }
     }
 
-    // --- 최종 결과 수집 ---
+    // --- Collect final results ---
     const tests = Array.from(this.testMap.values()).map((e) => e.ctrfTest);
 
-    // --- Summary 계산 ---
+    // --- Calculate summary ---
     const passed = tests.filter((t) => t.status === 'passed').length;
     const failed = tests.filter((t) => t.status === 'failed').length;
     const skipped = tests.filter((t) => t.status === 'skipped').length;
 
-    // --- Environment 조립 (git 메타데이터) ---
+    // --- Build environment from git metadata ---
     let environment: CtrfEnvironment | undefined;
     if (this.gitInfo.commit || this.gitInfo.branch) {
       environment = {
@@ -335,7 +335,7 @@ class FlowReporter implements Reporter {
       };
     }
 
-    // --- CtrfReport 조립 ---
+    // --- Build CtrfReport ---
     const report: CtrfReport = {
       reportFormat: 'CTRF',
       specVersion: '0.0.0',
@@ -358,17 +358,17 @@ class FlowReporter implements Reporter {
       },
     };
 
-    // ctrf-report.json 저장
+    // Write ctrf-report.json.
     const jsonPath = path.join(this.outputDir, 'ctrf-report.json');
     fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf-8');
 
-    // HTML 생성 (직접 import로 호출)
+    // Generate HTML through direct import.
     if (this.generateHtml) {
       try {
         const htmlPath = path.join(this.outputDir, 'index.html');
         await generateFlowHtml(jsonPath, htmlPath);
       } catch {
-        // HTML 생성 실패 시 무시 (ctrf-report.json은 이미 저장됨)
+        // Ignore HTML generation failures; ctrf-report.json has already been written.
       }
     }
   }
